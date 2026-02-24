@@ -70,7 +70,7 @@ export default function Navbar({ treeId }) {
   return (
     <nav style={{ viewTransitionName: 'navbar' }} className="flex items-center h-12 px-4 bg-gray-950 border-b border-gray-700 shrink-0 gap-3">
       {/* Logo */}
-      <button onClick={goToRoot} className="shrink-0">
+      <button onClick={() => navigate('/')} className="shrink-0">
         <Logo />
       </button>
 

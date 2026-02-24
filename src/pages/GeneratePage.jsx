@@ -56,7 +56,11 @@ export default function GeneratePage() {
       setTimeout(() => navigate(`/${treeId}/${rootArgumentId}`), 600)
     } catch (err) {
       console.error(err)
-      setError(err.message)
+      setError(
+        err.message === 'NO_ARGUMENTS'
+          ? 'The text doesn\'t appear to contain a clear argument or debate. Try pasting a debate transcript, opinion piece, or argumentative text.'
+          : err.message
+      )
       setStatus('error')
     }
   }

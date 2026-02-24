@@ -27,7 +27,8 @@ Rules:
 - Nest as deep as the content warrants — there is no depth limit
 - Max 300 characters per node
 - Only include arguments explicitly present in the text
-- Output ONLY the tree, no preamble, no commentary${rootClaim ? `\n- Use this as the root claim (first line): "${rootClaim}"` : ''}
+- Output ONLY the tree, no preamble, no commentary
+- If the text contains no discernible central claim or arguments, output only: NO_ARGUMENTS${rootClaim ? `\n- Use this as the root claim (first line): "${rootClaim}"` : ''}
 
 Text to analyze:
 ---
@@ -109,6 +110,9 @@ export async function generateTreeText({ text, apiKey, model, rootClaim, onProgr
         ? buildFirstPrompt(chunks[i], rootClaim)
         : buildExpandPrompt(chunks[i], treeText),
     })
+    if (i === 0 && treeText.trim() === 'NO_ARGUMENTS') {
+      throw new Error('NO_ARGUMENTS')
+    }
   }
   return treeText
 }
