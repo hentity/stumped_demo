@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "arguments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "treeId", "order": "ASCENDING" },
+        { "fieldPath": "parentId", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
