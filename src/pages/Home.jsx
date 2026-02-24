@@ -87,6 +87,15 @@ export default function Home() {
             {loading ? 'Creating…' : 'Create argument'}
           </button>
         </form>
+
+        <div className="mt-6 pt-6 border-t border-gray-800 text-center">
+          <a
+            href="/generate"
+            className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Generate tree from text →
+          </a>
+        </div>
       </div>
     </div>
   )
