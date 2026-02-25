@@ -37,9 +37,9 @@ ${chunk}
 ---`
 }
 
-function buildSourcesPrompt(sources, rootClaim) {
+function buildSourcesPrompt(sources, startIndex, rootClaim) {
   const entries = sources.map((s, i) =>
-    `[${i}] URL: ${s.url}\n${s.text}`
+    `[${startIndex + i}] URL: ${s.url}\n${s.text}`
   ).join('\n\n')
 
   return `Read the following sourced texts and extract arguments to build a structured argument tree.
@@ -65,6 +65,31 @@ Rules:
 - If no coherent argument tree can be formed, output only: NO_ARGUMENTS${rootClaim ? `\n- Use this as the root claim (first line): "${rootClaim}"` : ''}
 
 Source texts:
+${entries}`
+}
+
+function buildSourcesExpandPrompt(sources, startIndex, currentTree) {
+  const entries = sources.map((s, i) =>
+    `[${startIndex + i}] URL: ${s.url}\n${s.text}`
+  ).join('\n\n')
+
+  return `Current tree:
+---
+${currentTree}
+---
+
+Analyze the following additional sourced texts and update the tree. You may:
+- Add new [FOR] or [AGAINST] children to any existing node
+- Add new top-level [FOR]/[AGAINST] arguments directly under the root
+- Revise the wording of existing nodes if the new sources clarify or contradict them
+
+Rules:
+- All other lines: 2 spaces per indent level, then [FOR] or [AGAINST], then argument text, then [SRC=N]
+- Every new or revised non-root node MUST end with a [SRC=N] tag citing its source index
+- Source indices below are numbered from ${startIndex} — use these exact indices in [SRC=N] tags
+- Output the COMPLETE updated tree, no commentary
+
+New source texts:
 ${entries}`
 }
 
@@ -149,19 +174,49 @@ export async function generateTreeText({ text, apiKey, model, rootClaim, onProgr
   return treeText
 }
 
-// Generates a tree from structured sources (array of { argument, url, quote }).
+// Groups sources into chunks capped at CHUNK_SIZE total characters (url + text).
+function chunkSources(sources) {
+  const chunks = []
+  let current = [], currentSize = 0
+  for (const src of sources) {
+    const size = src.url.length + src.text.length
+    if (current.length > 0 && currentSize + size > CHUNK_SIZE) {
+      chunks.push(current)
+      current = []
+      currentSize = 0
+    }
+    current.push(src)
+    currentSize += size
+  }
+  if (current.length) chunks.push(current)
+  return chunks
+}
+
+// Generates a tree from structured sources (array of { url, text }).
+// Sources are processed chunk-by-chunk like generateTreeText.
 // Each non-root node in the output is tagged with [SRC=N] by the LLM.
 // Returns the raw tree text string.
 export async function generateTreeFromSources({ sources, apiKey, model, rootClaim, onProgress }) {
   if (!sources.length) throw new Error('No sources to process')
-  onProgress({ chunk: 1, total: 1 })
-  const treeText = await callGenerate({
-    apiKey,
-    model,
-    system: SYSTEM_SOURCES,
-    prompt: buildSourcesPrompt(sources, rootClaim),
-  })
-  if (treeText.trim() === 'NO_ARGUMENTS') throw new Error('NO_ARGUMENTS')
+
+  const chunks = chunkSources(sources)
+  let treeText = ''
+  let startIndex = 0
+
+  for (let i = 0; i < chunks.length; i++) {
+    onProgress({ chunk: i + 1, total: chunks.length })
+    treeText = await callGenerate({
+      apiKey,
+      model,
+      system: SYSTEM_SOURCES,
+      prompt: i === 0
+        ? buildSourcesPrompt(chunks[i], startIndex, rootClaim)
+        : buildSourcesExpandPrompt(chunks[i], startIndex, treeText),
+    })
+    if (i === 0 && treeText.trim() === 'NO_ARGUMENTS') throw new Error('NO_ARGUMENTS')
+    startIndex += chunks[i].length
+  }
+
   return treeText
 }
 
