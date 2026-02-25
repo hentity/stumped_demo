@@ -149,9 +149,28 @@ export default function GeneratePage() {
 
           {/* Text input */}
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1 uppercase tracking-wider">
-              Text
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">
+                Text
+              </label>
+              <label className={`text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer ${isRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                Upload .txt
+                <input
+                  type="file"
+                  accept=".txt,text/plain"
+                  disabled={isRunning}
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = ev => setText(ev.target.result)
+                    reader.readAsText(file)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
             <textarea
               value={text}
               onChange={e => setText(e.target.value)}
