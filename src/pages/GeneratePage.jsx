@@ -277,7 +277,7 @@ export default function GeneratePage() {
                   </a>
                 </div>
                 <p className="text-xs text-gray-600 mb-2">
-                  Upload a JSON array where each entry has an <code className="text-gray-500">argument</code>, <code className="text-gray-500">url</code>, and <code className="text-gray-500">quote</code>. Every node in the tree will be backed by at least one source.
+                  Upload a JSON array where each entry has a <code className="text-gray-500">url</code> and <code className="text-gray-500">text</code> (raw content from the source). Claude extracts the arguments and organises them into the tree.
                 </p>
                 {sourcesFile ? (
                   <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5">

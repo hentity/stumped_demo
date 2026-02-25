@@ -8,7 +8,7 @@ const CHUNK_SIZE = 60_000 // characters per chunk (~15k tokens, well within 200k
 
 const SYSTEM_BUILD = 'You are building a structured argument tree from a text.'
 const SYSTEM_EXPAND = 'You are expanding a structured argument tree from additional text.'
-const SYSTEM_SOURCES = 'You are building a structured argument tree from a collection of sourced claims.'
+const SYSTEM_SOURCES = 'You are building a structured argument tree by extracting and organising arguments from a collection of sourced texts.'
 
 function buildFirstPrompt(chunk, rootClaim) {
   return `Extract the central claim being debated and all supporting/opposing arguments from the text below.
@@ -39,32 +39,32 @@ ${chunk}
 
 function buildSourcesPrompt(sources, rootClaim) {
   const entries = sources.map((s, i) =>
-    `[${i}] ${s.argument}\nURL: ${s.url}\nQUOTE: ${s.quote}`
+    `[${i}] URL: ${s.url}\n${s.text}`
   ).join('\n\n')
 
-  return `Organise the following sourced claims into a structured argument tree.
+  return `Read the following sourced texts and extract arguments to build a structured argument tree.
 
 Output format — indented tree text:
 
 The root claim (first line, no prefix)
-  [FOR] A supporting argument [SRC=N]
+  [FOR] A supporting argument derived from the sources [SRC=N]
     [FOR] A sub-argument [SRC=N]
-    [AGAINST] A counter [SRC=N]
+    [AGAINST] A counter-argument [SRC=N]
   [AGAINST] An opposing argument [SRC=N]
 
 Rules:
 - First line is the root claim, no prefix, no [SRC=...] tag
 - All other lines: 2 spaces per indent level, then [FOR] or [AGAINST], then the argument text, then [SRC=N]
-- Every non-root node MUST end with a [SRC=N] tag citing its source entry index
-- To cite multiple entries for one node use [SRC=0,3] — comma-separated, no spaces
-- Never create a node you cannot cite — if a claim has no matching entry, omit it
-- Preserve the argument wording from the entries as closely as possible
+- Derive concise argument nodes from the content of each source text — do not copy verbatim
+- Every non-root node MUST end with a [SRC=N] tag citing the index of the source it was derived from
+- To cite multiple sources for one node use [SRC=0,3] — comma-separated, no spaces
+- Never create a node you cannot attribute to a source
 - Nest as deep as the content warrants
 - Max 300 characters per node (not counting the [SRC=...] tag)
 - Output ONLY the tree, no preamble, no commentary
 - If no coherent argument tree can be formed, output only: NO_ARGUMENTS${rootClaim ? `\n- Use this as the root claim (first line): "${rootClaim}"` : ''}
 
-Source entries:
+Source texts:
 ${entries}`
 }
 
@@ -210,7 +210,7 @@ function countChildren(node) {
 }
 
 // Writes a parsed tree to Firestore in parallel. Returns { treeId, rootArgumentId }.
-// sourcesData: optional array of { argument, url, quote } from a JSON upload.
+// sourcesData: optional array of { url, text } from a JSON upload.
 // When provided, source docs are written for nodes that carry srcIndices.
 export async function writeTree(parsedRoot, deviceId, username, sourcesData = null) {
   const treeId = nanoid(10)
@@ -245,7 +245,7 @@ export async function writeTree(parsedRoot, deviceId, username, sourcesData = nu
       writes.push(setDoc(doc(db, 'sources', nanoid(10)), {
         argumentId,
         url: src.url,
-        quote: src.quote || '',
+        quote: '',
         addedByDeviceId: deviceId,
         createdAt: serverTimestamp(),
       }))
