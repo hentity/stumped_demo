@@ -4,6 +4,10 @@ import ArgumentItem from './ArgumentItem'
 
 const PAGE_SIZE = 10
 
+// Cache full list state so back-navigation renders items at their correct positions,
+// giving the FLIP animation a stable, correctly-positioned target to animate toward.
+const listCache = new Map()
+
 function PencilIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -17,16 +21,23 @@ const ArgumentList = forwardRef(function ArgumentList(
   ref
 ) {
   // backTarget = { backArgId, backArg, backArgSources, backArgVote } | null
-  // When present, pre-populate state so the item is in the DOM for the
-  // back view-transition snapshot (taken synchronously inside flushSync).
-  const [args, setArgs] = useState(backTarget ? [backTarget.backArg] : [])
-  const [loading, setLoading] = useState(!backTarget)
-  const [sourcesMap, setSourcesMap] = useState(   // { [argumentId]: source[] }
-    backTarget ? { [backTarget.backArgId]: backTarget.backArgSources ?? [] } : {}
+  // When present, restore full list from cache so the back-target item renders
+  // at its correct position, giving the FLIP animation the right target rect.
+  const cacheKey = `${treeId}:${parentId}:${parentRelation}`
+  const cached = backTarget ? listCache.get(cacheKey) : null
+
+  const [args, setArgs] = useState(() =>
+    cached ? cached.args : backTarget ? [backTarget.backArg] : []
   )
-  const [votesMap, setVotesMap] = useState(        // { [argumentId]: 1 | -1 | null }
-    backTarget ? { [backTarget.backArgId]: backTarget.backArgVote ?? null } : {}
-  )
+  const [loading, setLoading] = useState(!backTarget && !cached)
+  const [sourcesMap, setSourcesMap] = useState(() => {   // { [argumentId]: source[] }
+    if (cached) return { ...cached.sourcesMap, ...(backTarget ? { [backTarget.backArgId]: backTarget.backArgSources ?? [] } : {}) }
+    return backTarget ? { [backTarget.backArgId]: backTarget.backArgSources ?? [] } : {}
+  })
+  const [votesMap, setVotesMap] = useState(() => {        // { [argumentId]: 1 | -1 | null }
+    if (cached) return { ...cached.votesMap, ...(backTarget ? { [backTarget.backArgId]: backTarget.backArgVote ?? null } : {}) }
+    return backTarget ? { [backTarget.backArgId]: backTarget.backArgVote ?? null } : {}
+  })
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [sentinel, setSentinel] = useState(null)
 
@@ -35,6 +46,8 @@ const ArgumentList = forwardRef(function ArgumentList(
   const suppressNextLoad = useRef(!!backTarget)
 
   const isFor = parentRelation === 'for'
+
+  console.log(`[ArgumentList:${parentRelation}] render`, { expandedId, backTarget: !!backTarget, backArgId: backTarget?.backArgId, backArgRelation: backTarget?.backArg?.parentRelation, argsLength: args.length })
 
   const fetch = useCallback(async () => {
     if (suppressNextLoad.current) {
@@ -101,6 +114,11 @@ const ArgumentList = forwardRef(function ArgumentList(
     })
   }, [deviceId, votesMap])
 
+  const handleDiveDeeper = useCallback((targetArgumentId, initialData) => {
+    listCache.set(cacheKey, { args, sourcesMap, votesMap })
+    onDiveDeeper(targetArgumentId, initialData)
+  }, [cacheKey, args, sourcesMap, votesMap, onDiveDeeper])
+
   const handleDelete = useCallback(async (argumentId) => {
     const arg = args.find(a => a.id === argumentId)
     if (!arg) return
@@ -159,7 +177,7 @@ const ArgumentList = forwardRef(function ArgumentList(
                 onToggle={handleToggle}
                 onVote={handleVote}
                 onAddSource={onAddSource}
-                onDiveDeeper={onDiveDeeper}
+                onDiveDeeper={handleDiveDeeper}
                 onDelete={handleDelete}
               />
             ))}

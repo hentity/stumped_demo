@@ -44,12 +44,14 @@ export default function ArgumentPage() {
   // immediately re-render with the new value — so the very first commit already
   // has the correct expanded state, and the view-transition snapshot sees the
   // fully-expanded item rather than a mid-CSS-transition collapsed one.
-  const lastArgIdRef = useRef(argumentId)
-  if (lastArgIdRef.current !== argumentId) {
-    lastArgIdRef.current = argumentId
+  const [lastArgId, setLastArgId] = useState(argumentId)
+  if (lastArgId !== argumentId) {
     const bs = location.state
     const nextArgId = bs?.backArgId ?? null
     const nextPanel = bs?.backArg?.parentRelation ?? null
+
+    setLastArgId(argumentId)
+
     if (expandedArgId !== nextArgId) setExpandedArgId(nextArgId)
     if (expandedPanel !== nextPanel) setExpandedPanel(nextPanel)
   }
@@ -121,8 +123,8 @@ export default function ArgumentPage() {
     }
   }
 
-  const handleDiveDeeper = (targetArgumentId) => {
-    navigate(`/${treeId}/${targetArgumentId}`)
+  const handleDiveDeeper = (targetArgumentId, initialData) => {
+    navigate(`/${treeId}/${targetArgumentId}`, { state: { initialData } })
   }
 
   return (

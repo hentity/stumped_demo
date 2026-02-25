@@ -1,11 +1,10 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { flushSync } from 'react-dom'
+import { useState, useEffect, useLayoutEffect, useRef, forwardRef } from 'react'
 import ViewSourcesModal from './ViewSourcesModal'
-import { setPendingDiveId, getPendingBackId, clearPendingBackId } from '../lib/diveTransition'
+import { recordFlipSource, consumeFlipRect, applyFlipViaClone } from '../lib/diveTransition'
 
 function formatDate(ts) {
   if (!ts) return ''
-  const d = ts.toDate ? ts.toDate() : new Date(ts)
+  const d = ts.toDate ? ts.toDate() : ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts)
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -13,6 +12,14 @@ function ChevronDown() {
   return (
     <svg width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="2,1 6,6 10,1" />
+    </svg>
+  )
+}
+
+function ChevronUp() {
+  return (
+    <svg width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="2,7 6,2 10,7" />
     </svg>
   )
 }
@@ -25,7 +32,7 @@ function TrashIcon() {
   )
 }
 
-export default function ArgumentItem({
+const ArgumentItem = forwardRef(function ArgumentItem({
   argument,
   treeId,
   deviceId,
@@ -37,17 +44,18 @@ export default function ArgumentItem({
   onAddSource,
   onDiveDeeper,
   onDelete,
+  onBack,          // panel mode: back button callback
+  isPanel = false, // panel mode: always expanded, different bg, back instead of sub-args
   animIndex = 0,
   skipAnimation = false,
-}) {
+}, ref) {
+  const localRef = useRef(null)
+  const divRef = ref ?? localRef
+
   const [voting, setVoting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [viewSources, setViewSources] = useState(false)
-  const divRef = useRef(null)
 
-  // Freeze the animation style at mount so re-renders (vote, expand) don't replay it.
-  // skipAnimation is set for the back-transition target so the entry pop doesn't
-  // conflict with the view-transition morph.
   const animStyle = useRef(null)
   if (!animStyle.current) {
     animStyle.current = skipAnimation ? {} : {
@@ -56,20 +64,37 @@ export default function ArgumentItem({
     }
   }
 
-  // If this item is the destination of a back transition, claim the shared-element
-  // name so the browser morphs the ArgumentPanel down into this position.
+  // Back transition: if this item is the FLIP destination, animate it from the panel position.
+  // Uses a fixed-position clone so the animation isn't clipped by overflow:hidden ancestors.
   useLayoutEffect(() => {
-    if (getPendingBackId() === argument.id && divRef.current) {
-      divRef.current.style.viewTransitionName = 'arg-panel'
-      clearPendingBackId()
+    if (isPanel) return
+    const sourceRect = consumeFlipRect(argument.id)
+    if (sourceRect && divRef.current) {
+      // If the item is below the bottom of its scroll container, scroll it into view
+      // at the bottom so its getBoundingClientRect is correct for the FLIP animation.
+      let scrollParent = divRef.current.parentElement
+      while (scrollParent) {
+        const { overflow, overflowY } = window.getComputedStyle(scrollParent)
+        if (/auto|scroll/.test(overflow + overflowY)) break
+        scrollParent = scrollParent.parentElement
+      }
+      if (scrollParent) {
+        const itemRect = divRef.current.getBoundingClientRect()
+        const containerRect = scrollParent.getBoundingClientRect()
+        if (itemRect.bottom > containerRect.bottom) {
+          scrollParent.scrollTop += itemRect.bottom - containerRect.bottom
+        }
+      }
+      applyFlipViaClone(divRef.current, sourceRect)
     }
   }, [argument.id])
 
+  const expanded = isPanel ? true : isExpanded
   const isAuthor = argument.authorDeviceId === deviceId
 
   useEffect(() => {
-    if (!isExpanded) { setConfirmDelete(false); setViewSources(false) }
-  }, [isExpanded])
+    if (!expanded) { setConfirmDelete(false); setViewSources(false) }
+  }, [expanded])
 
   const handleVote = async (value) => {
     if (voting) return
@@ -82,15 +107,9 @@ export default function ArgumentItem({
   }
 
   const handleDiveDeeper = () => {
-    if (divRef.current) divRef.current.style.viewTransitionName = 'arg-panel'
-    setPendingDiveId(argument.id)
-    if ('startViewTransition' in document) {
-      document.startViewTransition(() => {
-        flushSync(() => onDiveDeeper(argument.id))
-      })
-    } else {
-      onDiveDeeper(argument.id)
-    }
+    recordFlipSource(divRef.current, argument.id)
+    const initialData = { argument, sources, userVote }
+    onDiveDeeper(argument.id, initialData)
   }
 
   const scoreDisplay = argument.score > 0 ? `+${argument.score}` : `${argument.score}`
@@ -99,29 +118,32 @@ export default function ArgumentItem({
   const downvoteActive = userVote === -1
   const sourceCount = sources?.length ?? 0
 
+  const wrapperClass = isPanel
+    ? 'shrink-0 bg-gray-900'
+    : 'border-b border-gray-800'
+
   return (
-    <div ref={divRef} style={animStyle.current} className="border-b border-gray-800">
+    <div ref={divRef} style={isPanel ? undefined : animStyle.current} className={wrapperClass}>
       <div className="flex items-stretch">
-        {/* Left column: tap to toggle */}
+        {/* Left column */}
         <div
-          onClick={() => onToggle(argument.id)}
-          className="flex-1 min-w-0 text-left px-4 py-3 flex flex-col gap-2 cursor-pointer"
+          onClick={isPanel ? undefined : () => onToggle(argument.id)}
+          className={`flex-1 min-w-0 text-left px-4 py-3 flex flex-col${isPanel ? '' : ' cursor-pointer'}${expanded ? '' : ' justify-center'}`}
         >
           {argument.deleted ? (
             <span className="text-gray-600 text-sm italic">[deleted by user]</span>
           ) : (
             <>
-              <span className={`text-gray-300 text-sm ${isExpanded ? 'leading-snug' : 'truncate'}`}>
+              <span className={`text-sm leading-snug ${isPanel ? 'text-white' : 'text-gray-300'} ${expanded ? '' : 'truncate'}`}>
                 {argument.text}
               </span>
 
-              {/* Meta + add source — animate in on expand */}
               <div
                 className="grid transition-[grid-template-rows] duration-200 ease-in-out"
-                style={{ gridTemplateRows: isExpanded ? '1fr' : '0fr' }}
+                style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
               >
                 <div className="overflow-hidden min-h-0">
-                  <div className="flex flex-col gap-2 pt-1">
+                  <div className="flex flex-col gap-2 pt-2">
                     <p className="text-xs text-gray-500">
                       {argument.authorUsername}
                       {argument.createdAt && ` · ${formatDate(argument.createdAt)}`}
@@ -149,11 +171,10 @@ export default function ArgumentItem({
 
         {/* Right column: vote widget + delete */}
         {!argument.deleted && (
-          <div className="flex flex-col items-center pr-4 pl-2 py-3 shrink-0">
-            {/* ↑ button — slides down into view */}
+          <div className={`flex flex-col items-center pr-4 pl-2 py-3 shrink-0${expanded ? '' : ' justify-center'}`}>
             <div
               className="grid transition-[grid-template-rows] duration-200 ease-in-out w-full"
-              style={{ gridTemplateRows: isExpanded ? '1fr' : '0fr' }}
+              style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
             >
               <div className="overflow-hidden min-h-0 flex justify-center">
                 <button
@@ -166,15 +187,13 @@ export default function ArgumentItem({
               </div>
             </div>
 
-            {/* Score — always visible */}
             <span className={`text-xs font-mono font-medium px-1 py-0.5 ${scoreColor}`}>
               {scoreDisplay}
             </span>
 
-            {/* ↓ button — slides up into view */}
             <div
               className="grid transition-[grid-template-rows] duration-200 ease-in-out w-full"
-              style={{ gridTemplateRows: isExpanded ? '1fr' : '0fr' }}
+              style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
             >
               <div className="overflow-hidden min-h-0 flex justify-center">
                 <button
@@ -187,11 +206,10 @@ export default function ArgumentItem({
               </div>
             </div>
 
-            {/* Delete — slides in for authors */}
             {isAuthor && (
               <div
                 className="grid transition-[grid-template-rows] duration-200 ease-in-out w-full"
-                style={{ gridTemplateRows: isExpanded ? '1fr' : '0fr' }}
+                style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
               >
                 <div className="overflow-hidden min-h-0 flex justify-center">
                   <button
@@ -207,22 +225,34 @@ export default function ArgumentItem({
         )}
       </div>
 
-      {/* Sub-arguments button — full width, animates in */}
+      {/* Bottom button: Back (panel) or Sub-arguments (item) */}
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-in-out"
-        style={{ gridTemplateRows: isExpanded ? '1fr' : '0fr' }}
+        style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
       >
         <div className="overflow-hidden min-h-0">
           <div className="px-4 pb-4">
-            <button
-              onClick={handleDiveDeeper}
-              className="w-full flex items-center justify-center gap-2 text-xs text-gray-500 border border-gray-700 rounded-md py-2 hover:bg-gray-800 hover:text-gray-300 transition-colors"
-            >
-              <ChevronDown />
-              Sub-arguments
-              {argument.forCount > 0 && <span className="bg-green-900/60 text-green-400 rounded px-1 font-mono">{argument.forCount}</span>}
-              {argument.againstCount > 0 && <span className="bg-red-900/60 text-red-400 rounded px-1 font-mono">{argument.againstCount}</span>}
-            </button>
+            {isPanel ? (
+              onBack && (
+                <button
+                  onClick={onBack}
+                  className="w-full flex items-center justify-center gap-2 text-xs text-gray-500 border border-gray-700 rounded-md py-2 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+                >
+                  <ChevronUp />
+                  Back
+                </button>
+              )
+            ) : (
+              <button
+                onClick={handleDiveDeeper}
+                className="w-full flex items-center justify-center gap-2 text-xs text-gray-500 border border-gray-700 rounded-md py-2 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+              >
+                <ChevronDown />
+                Sub-arguments
+                {argument.forCount > 0 && <span className="bg-green-900/60 text-green-400 rounded px-1 font-mono">{argument.forCount}</span>}
+                {argument.againstCount > 0 && <span className="bg-red-900/60 text-red-400 rounded px-1 font-mono">{argument.againstCount}</span>}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -249,4 +279,6 @@ export default function ArgumentItem({
       )}
     </div>
   )
-}
+})
+
+export default ArgumentItem

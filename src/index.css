@@ -17,30 +17,6 @@ input, textarea {
   font-size: 1rem !important;
 }
 
-/* ── View Transitions ─────────────────────────────────────────────────────── */
-
-/* Match the app background so fades go to/from dark rather than white */
-::view-transition {
-  background-color: #030712; /* gray-950 */
-}
-
-/* Everything except the shared panel: fade out, then pop in */
-@keyframes vt-exit  { to   { opacity: 0; } }
-@keyframes vt-enter { from { opacity: 0; transform: scale(0.98); } }
-
-::view-transition-old(root) {
-  animation: 160ms ease-in  both vt-exit;
-}
-::view-transition-new(root) {
-  animation: 240ms ease-out 80ms both vt-enter;
-}
-
-/* The shared argument panel: smooth position + size morph */
-::view-transition-group(arg-panel) {
-  animation-duration: 320ms;
-  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
-
 /* Sub-argument stagger pop-in */
 @keyframes item-pop {
   from { opacity: 0; transform: translateX(18px); }
