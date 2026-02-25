@@ -6,6 +6,7 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  deleteDoc,
 
   collection,
   query,
@@ -135,6 +136,11 @@ export async function addSource(argumentId, url, quote, deviceId) {
     createdAt: serverTimestamp(),
   })
   return sourceId
+}
+
+// Deletes a source document.
+export async function deleteSource(sourceId) {
+  await deleteDoc(doc(db, 'sources', sourceId))
 }
 
 // Fetches the current user's vote for an argument.

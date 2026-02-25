@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDeviceId } from '../hooks/useDeviceId'
 import { useUsername } from '../hooks/useUsername'
-import { chunkText, generateTreeText, parseTreeText, writeTree } from '../lib/treeGenerator'
+import { chunkText, generateTreeText, generateTreeFromSources, parseTreeText, writeTree } from '../lib/treeGenerator'
 
 const MODELS = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet (fast, recommended)' },
@@ -18,8 +18,13 @@ export default function GeneratePage() {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState(MODELS[0].value)
   const [rootClaim, setRootClaim] = useState('')
+
+  // input mode: 'text' | 'sources'
+  const [inputMode, setInputMode] = useState('text')
   const [text, setText] = useState('')
-  const [uploadedFile, setUploadedFile] = useState(null) // File object, mutually exclusive with text
+  const [uploadedFile, setUploadedFile] = useState(null)   // .txt File
+  const [sourcesFile, setSourcesFile] = useState(null)     // .json File
+  const [sourcesError, setSourcesError] = useState('')     // JSON validation error
 
   // status: idle | processing | writing | done | error
   const [status, setStatus] = useState('idle')
@@ -29,7 +34,17 @@ export default function GeneratePage() {
   const chunks = chunkText(text)
   const chunkCount = chunks.length
 
-  const hasInput = uploadedFile != null || text.trim().length > 0
+  const hasInput = inputMode === 'sources'
+    ? sourcesFile != null
+    : uploadedFile != null || text.trim().length > 0
+
+  const switchMode = (mode) => {
+    setInputMode(mode)
+    setSourcesError('')
+    setError('')
+    if (mode === 'sources') { setUploadedFile(null); setText('') }
+    else { setSourcesFile(null) }
+  }
 
   const handleGenerate = async () => {
     if (!hasInput) return
@@ -43,21 +58,43 @@ export default function GeneratePage() {
     try {
       setUsernameStore(name.trim())
 
-      const resolvedText = uploadedFile
-        ? await uploadedFile.text()
-        : text.trim()
+      let treeText, sourcesData = null
 
-      const treeText = await generateTreeText({
-        text: resolvedText,
-        apiKey: apiKey.trim(),
-        model,
-        rootClaim: rootClaim.trim() || null,
-        onProgress: ({ chunk, total }) => setProgress({ chunk, total }),
-      })
+      if (inputMode === 'sources') {
+        let parsed
+        try {
+          parsed = JSON.parse(await sourcesFile.text())
+        } catch {
+          throw new Error('Could not parse JSON file — make sure it is valid JSON.')
+        }
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          throw new Error('JSON must be a non-empty array of source entries.')
+        }
+        sourcesData = parsed
+        treeText = await generateTreeFromSources({
+          sources: sourcesData,
+          apiKey: apiKey.trim(),
+          model,
+          rootClaim: rootClaim.trim() || null,
+          onProgress: ({ chunk, total }) => setProgress({ chunk, total }),
+        })
+      } else {
+        const resolvedText = uploadedFile
+          ? await uploadedFile.text()
+          : text.trim()
+
+        treeText = await generateTreeText({
+          text: resolvedText,
+          apiKey: apiKey.trim(),
+          model,
+          rootClaim: rootClaim.trim() || null,
+          onProgress: ({ chunk, total }) => setProgress({ chunk, total }),
+        })
+      }
 
       setStatus('writing')
       const parsed = parseTreeText(treeText)
-      const { treeId, rootArgumentId } = await writeTree(parsed, deviceId, name.trim())
+      const { treeId, rootArgumentId } = await writeTree(parsed, deviceId, name.trim(), sourcesData)
 
       setStatus('done')
       setTimeout(() => navigate(`/${treeId}/${rootArgumentId}`), 600)
@@ -65,7 +102,7 @@ export default function GeneratePage() {
       console.error(err)
       setError(
         err.message === 'NO_ARGUMENTS'
-          ? 'The text doesn\'t appear to contain a clear argument or debate. Try pasting a debate transcript, opinion piece, or argumentative text.'
+          ? 'The input doesn\'t appear to contain a clear argument or debate. Try different source entries or add a root claim.'
           : err.message
       )
       setStatus('error')
@@ -154,56 +191,129 @@ export default function GeneratePage() {
             />
           </div>
 
-          {/* Text input */}
+          {/* Input mode toggle + input area */}
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">
+            {/* Mode toggle */}
+            <div className={`flex gap-1 p-0.5 bg-gray-900 border border-gray-700 rounded-lg w-fit mb-3 ${isRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+              <button
+                onClick={() => switchMode('text')}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${inputMode === 'text' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              >
                 Text
-              </label>
-              <label className={`text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer ${isRunning ? 'opacity-50 pointer-events-none' : ''}`}>
-                Upload .txt
-                <input
-                  type="file"
-                  accept=".txt,text/plain"
-                  disabled={isRunning}
-                  className="hidden"
-                  onChange={e => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    setUploadedFile(file)
-                    setText('')
-                    e.target.value = ''
-                  }}
-                />
-              </label>
+              </button>
+              <button
+                onClick={() => switchMode('sources')}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${inputMode === 'sources' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              >
+                Sources (JSON)
+              </button>
             </div>
-            {uploadedFile ? (
-              <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5">
-                <span className="text-sm text-gray-300 flex-1 truncate">{uploadedFile.name}</span>
-                <span className="text-xs text-gray-600">{(uploadedFile.size / 1024).toFixed(0)} KB</span>
-                {!isRunning && (
-                  <button
-                    onClick={() => setUploadedFile(null)}
-                    className="text-gray-600 hover:text-gray-400 transition-colors ml-1"
-                  >
-                    ✕
-                  </button>
+
+            {inputMode === 'text' ? (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Text
+                  </label>
+                  <label className={`text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer ${isRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                    Upload .txt
+                    <input
+                      type="file"
+                      accept=".txt,text/plain"
+                      disabled={isRunning}
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        setUploadedFile(file)
+                        setText('')
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                </div>
+                {uploadedFile ? (
+                  <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5">
+                    <span className="text-sm text-gray-300 flex-1 truncate">{uploadedFile.name}</span>
+                    <span className="text-xs text-gray-600">{(uploadedFile.size / 1024).toFixed(0)} KB</span>
+                    {!isRunning && (
+                      <button
+                        onClick={() => setUploadedFile(null)}
+                        className="text-gray-600 hover:text-gray-400 transition-colors ml-1"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <textarea
+                    value={text}
+                    onChange={e => setText(e.target.value)}
+                    placeholder="Paste your debate transcript, article, or essay here…"
+                    rows={10}
+                    disabled={isRunning}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-gray-500 resize-y disabled:opacity-50"
+                  />
                 )}
-              </div>
+                {!uploadedFile && chunkCount > 1 && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    {chunkCount} chunks · text will be processed iteratively
+                  </p>
+                )}
+              </>
             ) : (
-              <textarea
-                value={text}
-                onChange={e => setText(e.target.value)}
-                placeholder="Paste your debate transcript, article, or essay here…"
-                rows={10}
-                disabled={isRunning}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-gray-500 resize-y disabled:opacity-50"
-              />
-            )}
-            {!uploadedFile && chunkCount > 1 && (
-              <p className="text-xs text-gray-600 mt-1">
-                {chunkCount} chunks · text will be processed iteratively
-              </p>
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Sources
+                  </label>
+                  <a
+                    href="/json-format"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    See required format →
+                  </a>
+                </div>
+                <p className="text-xs text-gray-600 mb-2">
+                  Upload a JSON array where each entry has an <code className="text-gray-500">argument</code>, <code className="text-gray-500">url</code>, and <code className="text-gray-500">quote</code>. Every node in the tree will be backed by at least one source.
+                </p>
+                {sourcesFile ? (
+                  <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5">
+                    <span className="text-sm text-gray-300 flex-1 truncate">{sourcesFile.name}</span>
+                    <span className="text-xs text-gray-600">{(sourcesFile.size / 1024).toFixed(0)} KB</span>
+                    {!isRunning && (
+                      <button
+                        onClick={() => { setSourcesFile(null); setSourcesError('') }}
+                        className="text-gray-600 hover:text-gray-400 transition-colors ml-1"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <label className={`flex items-center justify-center gap-2 w-full bg-gray-900 border border-dashed border-gray-700 rounded-lg px-3 py-6 cursor-pointer hover:border-gray-500 transition-colors ${isRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <span className="text-sm text-gray-500">Upload .json file</span>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      disabled={isRunning}
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        setSourcesError('')
+                        setSourcesFile(file)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                )}
+                {sourcesError && (
+                  <p className="text-red-400 text-xs mt-1">{sourcesError}</p>
+                )}
+              </>
             )}
           </div>
 

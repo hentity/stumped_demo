@@ -17,7 +17,7 @@ function PencilIcon() {
 }
 
 const ArgumentList = forwardRef(function ArgumentList(
-  { treeId, parentId, parentRelation, deviceId, expandedId, onToggle, onAddArgument, onAddSource, onDiveDeeper, backTarget },
+  { treeId, parentId, parentRelation, deviceId, expandedId, onToggle, onAddArgument, onDiveDeeper, backTarget },
   ref
 ) {
   // backTarget = { backArgId, backArg, backArgSources, backArgVote } | null
@@ -58,10 +58,16 @@ const ArgumentList = forwardRef(function ArgumentList(
     try {
       const data = await getChildArguments(treeId, parentId, parentRelation)
       setArgs(data)
+      const votes = await Promise.all(data.map(a => getUserVote(a.id, deviceId)))
+      setVotesMap(prev => {
+        const updated = { ...prev }
+        data.forEach((a, i) => { updated[a.id] = votes[i] })
+        return updated
+      })
     } finally {
       setLoading(false)
     }
-  }, [treeId, parentId, parentRelation])
+  }, [treeId, parentId, parentRelation, deviceId])
 
   useEffect(() => {
     fetch()
@@ -86,12 +92,8 @@ const ArgumentList = forwardRef(function ArgumentList(
     onToggle(isOpening ? argumentId : null)
 
     if (isOpening && sourcesMap[argumentId] === undefined) {
-      const [sources, vote] = await Promise.all([
-        getSources(argumentId),
-        getUserVote(argumentId, deviceId),
-      ])
+      const sources = await getSources(argumentId)
       setSourcesMap(prev => ({ ...prev, [argumentId]: sources }))
-      setVotesMap(prev => ({ ...prev, [argumentId]: vote }))
     }
   }, [expandedId, sourcesMap, deviceId, onToggle])
 
@@ -118,6 +120,14 @@ const ArgumentList = forwardRef(function ArgumentList(
     listCache.set(cacheKey, { args, sourcesMap, votesMap })
     onDiveDeeper(targetArgumentId, initialData)
   }, [cacheKey, args, sourcesMap, votesMap, onDiveDeeper])
+
+  const handleSourceAdded = useCallback((argumentId, source) => {
+    setSourcesMap(prev => ({ ...prev, [argumentId]: [...(prev[argumentId] ?? []), source] }))
+  }, [])
+
+  const handleSourceDeleted = useCallback((argumentId, sourceId) => {
+    setSourcesMap(prev => ({ ...prev, [argumentId]: (prev[argumentId] ?? []).filter(s => s.id !== sourceId) }))
+  }, [])
 
   const handleDelete = useCallback(async (argumentId) => {
     const arg = args.find(a => a.id === argumentId)
@@ -176,7 +186,8 @@ const ArgumentList = forwardRef(function ArgumentList(
                 skipAnimation={backTarget?.backArgId === arg.id}
                 onToggle={handleToggle}
                 onVote={handleVote}
-                onAddSource={onAddSource}
+                onSourceAdded={handleSourceAdded}
+                onSourceDeleted={handleSourceDeleted}
                 onDiveDeeper={handleDiveDeeper}
                 onDelete={handleDelete}
               />

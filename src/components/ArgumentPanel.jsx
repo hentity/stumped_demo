@@ -8,7 +8,7 @@ import ArgumentItem from './ArgumentItem'
 // giving the FLIP animation a stable layout to measure against.
 const panelCache = new Map()
 
-export default function ArgumentPanel({ argumentId, treeId, deviceId, onAddSource }) {
+export default function ArgumentPanel({ argumentId, treeId, deviceId }) {
   const navigate = useNavigate()
   const location = useLocation()
   const panelRef = useRef(null)
@@ -74,6 +74,14 @@ export default function ArgumentPanel({ argumentId, treeId, deviceId, onAddSourc
     setUserVote(prevVote === value ? null : value)
   }
 
+  const handleSourceAdded = (source) => {
+    setSources(prev => [...prev, source])
+  }
+
+  const handleSourceDeleted = (sourceId) => {
+    setSources(prev => prev.filter(s => s.id !== sourceId))
+  }
+
   const handleDelete = async () => {
     await deleteArgument(argumentId)
     setArgument(prev => ({ ...prev, deleted: true }))
@@ -109,7 +117,8 @@ export default function ArgumentPanel({ argumentId, treeId, deviceId, onAddSourc
       userVote={userVote}
       sources={sources}
       onVote={handleVote}
-      onAddSource={onAddSource}
+      onSourceAdded={(_, src) => handleSourceAdded(src)}
+      onSourceDeleted={(_, srcId) => handleSourceDeleted(srcId)}
       onDelete={handleDelete}
       onBack={argument.parentId ? goBack : null}
       skipAnimation={true}

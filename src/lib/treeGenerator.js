@@ -8,6 +8,7 @@ const CHUNK_SIZE = 60_000 // characters per chunk (~15k tokens, well within 200k
 
 const SYSTEM_BUILD = 'You are building a structured argument tree from a text.'
 const SYSTEM_EXPAND = 'You are expanding a structured argument tree from additional text.'
+const SYSTEM_SOURCES = 'You are building a structured argument tree from a collection of sourced claims.'
 
 function buildFirstPrompt(chunk, rootClaim) {
   return `Extract the central claim being debated and all supporting/opposing arguments from the text below.
@@ -34,6 +35,37 @@ Text to analyze:
 ---
 ${chunk}
 ---`
+}
+
+function buildSourcesPrompt(sources, rootClaim) {
+  const entries = sources.map((s, i) =>
+    `[${i}] ${s.argument}\nURL: ${s.url}\nQUOTE: ${s.quote}`
+  ).join('\n\n')
+
+  return `Organise the following sourced claims into a structured argument tree.
+
+Output format — indented tree text:
+
+The root claim (first line, no prefix)
+  [FOR] A supporting argument [SRC=N]
+    [FOR] A sub-argument [SRC=N]
+    [AGAINST] A counter [SRC=N]
+  [AGAINST] An opposing argument [SRC=N]
+
+Rules:
+- First line is the root claim, no prefix, no [SRC=...] tag
+- All other lines: 2 spaces per indent level, then [FOR] or [AGAINST], then the argument text, then [SRC=N]
+- Every non-root node MUST end with a [SRC=N] tag citing its source entry index
+- To cite multiple entries for one node use [SRC=0,3] — comma-separated, no spaces
+- Never create a node you cannot cite — if a claim has no matching entry, omit it
+- Preserve the argument wording from the entries as closely as possible
+- Nest as deep as the content warrants
+- Max 300 characters per node (not counting the [SRC=...] tag)
+- Output ONLY the tree, no preamble, no commentary
+- If no coherent argument tree can be formed, output only: NO_ARGUMENTS${rootClaim ? `\n- Use this as the root claim (first line): "${rootClaim}"` : ''}
+
+Source entries:
+${entries}`
 }
 
 function buildExpandPrompt(chunk, currentTree) {
@@ -117,14 +149,31 @@ export async function generateTreeText({ text, apiKey, model, rootClaim, onProgr
   return treeText
 }
 
+// Generates a tree from structured sources (array of { argument, url, quote }).
+// Each non-root node in the output is tagged with [SRC=N] by the LLM.
+// Returns the raw tree text string.
+export async function generateTreeFromSources({ sources, apiKey, model, rootClaim, onProgress }) {
+  if (!sources.length) throw new Error('No sources to process')
+  onProgress({ chunk: 1, total: 1 })
+  const treeText = await callGenerate({
+    apiKey,
+    model,
+    system: SYSTEM_SOURCES,
+    prompt: buildSourcesPrompt(sources, rootClaim),
+  })
+  if (treeText.trim() === 'NO_ARGUMENTS') throw new Error('NO_ARGUMENTS')
+  return treeText
+}
+
 // ─── Parse tree text → node tree ─────────────────────────────────────────────
 
-// Returns { text, relation: null, children: [{ text, relation, children }] }
+// Returns { text, relation: null, srcIndices: [], children: [...] }
+// srcIndices is populated from [SRC=N] or [SRC=0,3] tags emitted by the LLM.
 export function parseTreeText(raw) {
   const lines = raw.split('\n').map(l => l.trimEnd()).filter(Boolean)
   if (!lines.length) throw new Error('LLM returned an empty tree')
 
-  const root = { text: lines[0].trim().slice(0, 300), relation: null, children: [] }
+  const root = { text: lines[0].trim().slice(0, 300), relation: null, srcIndices: [], children: [] }
   const stack = [{ depth: -1, node: root }]
 
   for (let i = 1; i < lines.length; i++) {
@@ -135,8 +184,11 @@ export function parseTreeText(raw) {
     if (!stripped.startsWith('[FOR]') && !stripped.startsWith('[AGAINST]')) continue
 
     const relation = stripped.startsWith('[FOR]') ? 'for' : 'against'
-    const text = stripped.replace(/^\[(FOR|AGAINST)\]\s*/, '').slice(0, 300)
-    const node = { text, relation, children: [] }
+    const afterTag = stripped.replace(/^\[(FOR|AGAINST)\]\s*/, '')
+    const srcMatch = afterTag.match(/\[SRC=([\d,]+)\]/)
+    const srcIndices = srcMatch ? srcMatch[1].split(',').map(Number) : []
+    const text = afterTag.replace(/\s*\[SRC=[\d,]+\]/, '').trim().slice(0, 300)
+    const node = { text, relation, srcIndices, children: [] }
 
     while (stack.length > 1 && stack[stack.length - 1].depth >= depth) stack.pop()
     stack[stack.length - 1].node.children.push(node)
@@ -158,7 +210,9 @@ function countChildren(node) {
 }
 
 // Writes a parsed tree to Firestore in parallel. Returns { treeId, rootArgumentId }.
-export async function writeTree(parsedRoot, deviceId, username) {
+// sourcesData: optional array of { argument, url, quote } from a JSON upload.
+// When provided, source docs are written for nodes that carry srcIndices.
+export async function writeTree(parsedRoot, deviceId, username, sourcesData = null) {
   const treeId = nanoid(10)
   const rootId = nanoid(10)
   const writes = []
@@ -183,6 +237,21 @@ export async function writeTree(parsedRoot, deviceId, username) {
     createdAt: serverTimestamp(),
   }))
 
+  function addSourceWrites(argumentId, srcIndices) {
+    if (!sourcesData || !srcIndices?.length) return
+    for (const idx of srcIndices) {
+      const src = sourcesData[idx]
+      if (!src) continue
+      writes.push(setDoc(doc(db, 'sources', nanoid(10)), {
+        argumentId,
+        url: src.url,
+        quote: src.quote || '',
+        addedByDeviceId: deviceId,
+        createdAt: serverTimestamp(),
+      }))
+    }
+  }
+
   function collectWrites(children, parentId) {
     for (const child of children) {
       const id = nanoid(10)
@@ -200,6 +269,7 @@ export async function writeTree(parsedRoot, deviceId, username) {
         generated: true,
         createdAt: serverTimestamp(),
       }))
+      addSourceWrites(id, child.srcIndices)
       if (child.children.length) collectWrites(child.children, id)
     }
   }

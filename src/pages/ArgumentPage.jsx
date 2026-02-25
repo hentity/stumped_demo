@@ -1,13 +1,12 @@
 import { useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { addArgument, addSource } from '../lib/firebase'
+import { addArgument } from '../lib/firebase'
 import { useDeviceId } from '../hooks/useDeviceId'
 import { useUsername } from '../hooks/useUsername'
 import ArgumentPanel from '../components/ArgumentPanel'
 import ArgumentList from '../components/ArgumentList'
 import UsernameModal from '../components/UsernameModal'
 import AddArgumentModal from '../components/AddArgumentModal'
-import AddSourceModal from '../components/AddSourceModal'
 import Navbar from '../components/Navbar'
 
 export default function ArgumentPage() {
@@ -22,11 +21,9 @@ export default function ArgumentPage() {
 
   const [usernameModalOpen, setUsernameModalOpen] = useState(false)
   const [addArgumentModalOpen, setAddArgumentModalOpen] = useState(false)
-  const [addSourceModalOpen, setAddSourceModalOpen] = useState(false)
 
   const [pendingAction, setPendingAction] = useState(null)
   const [activeParentRelation, setActiveParentRelation] = useState(null)
-  const [activeSourceArgumentId, setActiveSourceArgumentId] = useState(null)
 
   // Back-transition: pre-expand the item we're returning to, and pass its
   // data to the matching ArgumentList so it can render synchronously (giving
@@ -76,16 +73,6 @@ export default function ArgumentPage() {
     }
   }
 
-  const handleAddSource = (argId) => {
-    if (!username) {
-      setPendingAction({ type: 'addSource', argumentId: argId })
-      setUsernameModalOpen(true)
-    } else {
-      setActiveSourceArgumentId(argId)
-      setAddSourceModalOpen(true)
-    }
-  }
-
   const handleUsernameSubmit = (name) => {
     setUsername(name)
     setUsernameModalOpen(false)
@@ -93,9 +80,6 @@ export default function ArgumentPage() {
     if (pendingAction?.type === 'addArgument') {
       setActiveParentRelation(pendingAction.parentRelation)
       setAddArgumentModalOpen(true)
-    } else if (pendingAction?.type === 'addSource') {
-      setActiveSourceArgumentId(pendingAction.argumentId)
-      setAddSourceModalOpen(true)
     }
     setPendingAction(null)
   }
@@ -114,15 +98,6 @@ export default function ArgumentPage() {
     }
   }
 
-  const handleSourceSubmit = async ({ url, quote }) => {
-    setAddSourceModalOpen(false)
-    try {
-      await addSource(activeSourceArgumentId, url, quote, deviceId)
-    } catch (err) {
-      console.error('Failed to add source:', err)
-    }
-  }
-
   const handleDiveDeeper = (targetArgumentId, initialData) => {
     navigate(`/${treeId}/${targetArgumentId}`, { state: { initialData } })
   }
@@ -135,7 +110,6 @@ export default function ArgumentPage() {
           argumentId={argumentId}
           treeId={treeId}
           deviceId={deviceId}
-          onAddSource={handleAddSource}
         />
 
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -149,7 +123,6 @@ export default function ArgumentPage() {
               expandedId={expandedArgId}
               onToggle={handleForToggle}
               onAddArgument={handleAddArgument}
-              onAddSource={handleAddSource}
               onDiveDeeper={handleDiveDeeper}
               backTarget={forBackTarget}
             />
@@ -165,7 +138,6 @@ export default function ArgumentPage() {
               expandedId={expandedArgId}
               onToggle={handleAgainstToggle}
               onAddArgument={handleAddArgument}
-              onAddSource={handleAddSource}
               onDiveDeeper={handleDiveDeeper}
               backTarget={againstBackTarget}
             />
@@ -183,11 +155,6 @@ export default function ArgumentPage() {
         parentRelation={activeParentRelation}
         onSubmit={handleArgumentSubmit}
         onClose={() => setAddArgumentModalOpen(false)}
-      />
-      <AddSourceModal
-        isOpen={addSourceModalOpen}
-        onSubmit={handleSourceSubmit}
-        onClose={() => setAddSourceModalOpen(false)}
       />
     </div>
   )

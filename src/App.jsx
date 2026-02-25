@@ -4,6 +4,7 @@ import ArgumentPage from './pages/ArgumentPage'
 import DesignMockups from './mockups/DesignMockups'
 import SeedPage from './pages/SeedPage'
 import GeneratePage from './pages/GeneratePage'
+import JsonFormatPage from './pages/JsonFormatPage'
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/generate" element={<GeneratePage />} />
+        <Route path="/json-format" element={<JsonFormatPage />} />
         <Route path="/mockup" element={<DesignMockups />} />
         <Route path="/seed" element={<SeedPage />} />
         <Route path="/:treeId/:argumentId" element={<ArgumentPage />} />

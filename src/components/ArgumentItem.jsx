@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, forwardRef } from 'react'
-import ViewSourcesModal from './ViewSourcesModal'
+import { createPortal } from 'react-dom'
+import SourcesModal from './SourcesModal'
 import { recordFlipSource, consumeFlipRect, applyFlipViaClone } from '../lib/diveTransition'
 
 function formatDate(ts) {
@@ -24,6 +25,14 @@ function ChevronUp() {
   )
 }
 
+function HeartIcon({ filled }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  )
+}
+
 function TrashIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -41,7 +50,8 @@ const ArgumentItem = forwardRef(function ArgumentItem({
   userVote,
   sources,
   onVote,
-  onAddSource,
+  onSourceAdded,
+  onSourceDeleted,
   onDiveDeeper,
   onDelete,
   onBack,          // panel mode: back button callback
@@ -112,10 +122,7 @@ const ArgumentItem = forwardRef(function ArgumentItem({
     onDiveDeeper(argument.id, initialData)
   }
 
-  const scoreDisplay = argument.score > 0 ? `+${argument.score}` : `${argument.score}`
-  const scoreColor = argument.score > 0 ? 'text-white' : 'text-gray-500'
-  const upvoteActive = userVote === 1
-  const downvoteActive = userVote === -1
+  const likeActive = userVote === 1
   const sourceCount = sources?.length ?? 0
 
   const wrapperClass = isPanel
@@ -147,19 +154,13 @@ const ArgumentItem = forwardRef(function ArgumentItem({
                     <p className="text-xs text-gray-500">
                       {argument.authorUsername}
                       {argument.createdAt && ` · ${formatDate(argument.createdAt)}`}
-                      {sourceCount > 0 && (
-                        <> · <button
-                          onClick={e => { e.stopPropagation(); setViewSources(true) }}
-                          className="text-gray-400 hover:text-gray-200 transition-colors"
-                        >{sourceCount} source{sourceCount > 1 ? 's' : ''} ↗</button></>
-                      )}
                     </p>
-                    {isAuthor && (
+                    {(sourceCount > 0 || isAuthor) && (
                       <button
-                        onClick={e => { e.stopPropagation(); onAddSource(argument.id) }}
+                        onClick={e => { e.stopPropagation(); setViewSources(true) }}
                         className="text-xs text-gray-600 hover:text-gray-400 transition-colors self-start"
                       >
-                        + Add source
+                        {sourceCount > 0 ? `${sourceCount} source${sourceCount > 1 ? 's' : ''} ↗` : '+ Add source'}
                       </button>
                     )}
                   </div>
@@ -169,41 +170,20 @@ const ArgumentItem = forwardRef(function ArgumentItem({
           )}
         </div>
 
-        {/* Right column: vote widget + delete */}
+        {/* Right column: like widget + delete */}
         {!argument.deleted && (
-          <div className={`flex flex-col items-center pr-4 pl-2 py-3 shrink-0${expanded ? '' : ' justify-center'}`}>
-            <div
-              className="grid transition-[grid-template-rows] duration-200 ease-in-out w-full"
-              style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
-            >
-              <div className="overflow-hidden min-h-0 flex justify-center">
-                <button
-                  onClick={() => handleVote(1)}
-                  disabled={voting}
-                  className={`px-2 py-1 text-sm rounded transition-colors ${
-                    upvoteActive ? 'text-white' : 'text-gray-500 hover:text-white'
-                  }`}
-                >↑</button>
-              </div>
-            </div>
-
-            <span className={`text-xs font-mono font-medium px-1 py-0.5 ${scoreColor}`}>
-              {scoreDisplay}
-            </span>
-
-            <div
-              className="grid transition-[grid-template-rows] duration-200 ease-in-out w-full"
-              style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
-            >
-              <div className="overflow-hidden min-h-0 flex justify-center">
-                <button
-                  onClick={() => handleVote(-1)}
-                  disabled={voting}
-                  className={`px-2 py-1 text-sm rounded transition-colors ${
-                    downvoteActive ? 'text-white' : 'text-gray-500 hover:text-white'
-                  }`}
-                >↓</button>
-              </div>
+          <div className={`flex flex-col items-center justify-center pr-4 pl-2 py-3 shrink-0 gap-1`}>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handleVote(1)}
+                disabled={voting}
+                className={`p-1 rounded transition-colors ${likeActive ? 'text-red-500' : 'text-gray-500 hover:text-red-400'}`}
+              >
+                <HeartIcon filled={likeActive} />
+              </button>
+              <span className={`text-xs font-mono font-medium ${argument.score > 0 ? 'text-white' : 'text-gray-500'}`}>
+                {argument.score}
+              </span>
             </div>
 
             {isAuthor && (
@@ -257,15 +237,18 @@ const ArgumentItem = forwardRef(function ArgumentItem({
         </div>
       </div>
 
-      <ViewSourcesModal
+      <SourcesModal
         isOpen={viewSources}
+        argumentId={argument.id}
         sources={sources ?? []}
         isAuthor={isAuthor}
-        onAddSource={() => { setViewSources(false); onAddSource(argument.id) }}
+        deviceId={deviceId}
+        onSourceAdded={(src) => onSourceAdded(argument.id, src)}
+        onSourceDeleted={(srcId) => onSourceDeleted(argument.id, srcId)}
         onClose={() => setViewSources(false)}
       />
 
-      {confirmDelete && (
+      {confirmDelete && createPortal(
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-xs p-5 space-y-4">
             <p className="text-white text-sm">Delete this argument?</p>
@@ -275,7 +258,8 @@ const ArgumentItem = forwardRef(function ArgumentItem({
               <button onClick={() => onDelete(argument.id)} className="text-sm text-red-400 hover:text-red-300 transition-colors px-3 py-1.5">Delete</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
