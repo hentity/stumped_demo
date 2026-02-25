@@ -19,6 +19,7 @@ export default function GeneratePage() {
   const [model, setModel] = useState(MODELS[0].value)
   const [rootClaim, setRootClaim] = useState('')
   const [text, setText] = useState('')
+  const [uploadedFile, setUploadedFile] = useState(null) // File object, mutually exclusive with text
 
   // status: idle | processing | writing | done | error
   const [status, setStatus] = useState('idle')
@@ -28,20 +29,26 @@ export default function GeneratePage() {
   const chunks = chunkText(text)
   const chunkCount = chunks.length
 
+  const hasInput = uploadedFile != null || text.trim().length > 0
+
   const handleGenerate = async () => {
-    if (!text.trim()) return
+    if (!hasInput) return
     if (!name.trim()) { setError('Please enter a username.'); return }
     if (!apiKey.trim()) { setError('Please enter your Anthropic API key.'); return }
 
     setError('')
     setStatus('processing')
-    setProgress({ chunk: 0, total: chunkCount })
+    setProgress({ chunk: 0, total: 1 })
 
     try {
       setUsernameStore(name.trim())
 
+      const resolvedText = uploadedFile
+        ? await uploadedFile.text()
+        : text.trim()
+
       const treeText = await generateTreeText({
-        text: text.trim(),
+        text: resolvedText,
         apiKey: apiKey.trim(),
         model,
         rootClaim: rootClaim.trim() || null,
@@ -163,23 +170,37 @@ export default function GeneratePage() {
                   onChange={e => {
                     const file = e.target.files?.[0]
                     if (!file) return
-                    const reader = new FileReader()
-                    reader.onload = ev => setText(ev.target.result)
-                    reader.readAsText(file)
+                    setUploadedFile(file)
+                    setText('')
                     e.target.value = ''
                   }}
                 />
               </label>
             </div>
-            <textarea
-              value={text}
-              onChange={e => setText(e.target.value)}
-              placeholder="Paste your debate transcript, article, or essay here…"
-              rows={10}
-              disabled={isRunning}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-gray-500 resize-y disabled:opacity-50"
-            />
-            {chunkCount > 1 && (
+            {uploadedFile ? (
+              <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5">
+                <span className="text-sm text-gray-300 flex-1 truncate">{uploadedFile.name}</span>
+                <span className="text-xs text-gray-600">{(uploadedFile.size / 1024).toFixed(0)} KB</span>
+                {!isRunning && (
+                  <button
+                    onClick={() => setUploadedFile(null)}
+                    className="text-gray-600 hover:text-gray-400 transition-colors ml-1"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ) : (
+              <textarea
+                value={text}
+                onChange={e => setText(e.target.value)}
+                placeholder="Paste your debate transcript, article, or essay here…"
+                rows={10}
+                disabled={isRunning}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-white placeholder-gray-600 text-sm focus:outline-none focus:border-gray-500 resize-y disabled:opacity-50"
+              />
+            )}
+            {!uploadedFile && chunkCount > 1 && (
               <p className="text-xs text-gray-600 mt-1">
                 {chunkCount} chunks · text will be processed iteratively
               </p>
@@ -211,7 +232,7 @@ export default function GeneratePage() {
           {/* Generate button */}
           <button
             onClick={handleGenerate}
-            disabled={isRunning || !text.trim()}
+            disabled={isRunning || !hasInput}
             className="w-full bg-white text-gray-950 font-semibold py-2.5 rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
           >
             {isRunning ? '…' : 'Generate tree'}
