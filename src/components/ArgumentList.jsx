@@ -17,7 +17,18 @@ function PencilIcon() {
 }
 
 const ArgumentList = forwardRef(function ArgumentList(
-  { treeId, parentId, parentRelation, deviceId, expandedId, onToggle, onAddArgument, onDiveDeeper, backTarget },
+  {
+    treeId,
+    parentId,
+    parentRelation,
+    deviceId,
+    expandedId,
+    onToggle,
+    onAddArgument,
+    onDiveDeeper,
+    backTarget,
+    onSectionToggle
+  },
   ref
 ) {
   // backTarget = { backArgId, backArg, backArgSources, backArgVote } | null
@@ -46,8 +57,6 @@ const ArgumentList = forwardRef(function ArgumentList(
   const suppressNextLoad = useRef(!!backTarget)
 
   const isFor = parentRelation === 'for'
-
-  console.log(`[ArgumentList:${parentRelation}] render`, { expandedId, backTarget: !!backTarget, backArgId: backTarget?.backArgId, backArgRelation: backTarget?.backArg?.parentRelation, argsLength: args.length })
 
   const fetch = useCallback(async () => {
     if (suppressNextLoad.current) {
@@ -150,7 +159,7 @@ const ArgumentList = forwardRef(function ArgumentList(
   return (
     <div className={`flex flex-col flex-1 min-h-0 overflow-hidden border-t ${headerBorder}`}>
       {/* Panel header */}
-      <div className={`px-4 py-2.5 ${headerBg} border-b ${headerBorder} flex items-center gap-2 shrink-0`}>
+      <div onClick={onSectionToggle} className={`px-4 py-2.5 ${headerBg} border-b ${headerBorder} flex items-center gap-2 shrink-0 cursor-pointer`}>
         <span className={`text-xs font-semibold uppercase tracking-widest ${headerText}`}>
           {isFor ? 'For' : 'Against'}
         </span>

@@ -102,6 +102,22 @@ export default function ArgumentPage() {
     navigate(`/${treeId}/${targetArgumentId}`, { state: { initialData } })
   }
 
+  const handleForSectionToggle = useCallback(() => {
+    setExpandedArgId(null)
+
+    setExpandedPanel(prev =>
+      prev === 'for' ? null : 'for'
+    )
+  }, [])
+
+  const handleAgainstSectionToggle = useCallback(() => {
+    setExpandedArgId(null)
+
+    setExpandedPanel(prev =>
+      prev === 'against' ? null : 'against'
+    )
+  }, [])
+
   return (
     <div className="flex flex-col h-dvh bg-gray-950 overflow-hidden">
       <Navbar treeId={treeId} />
@@ -122,6 +138,7 @@ export default function ArgumentPage() {
               deviceId={deviceId}
               expandedId={expandedArgId}
               onToggle={handleForToggle}
+              onSectionToggle={handleForSectionToggle}
               onAddArgument={handleAddArgument}
               onDiveDeeper={handleDiveDeeper}
               backTarget={forBackTarget}
@@ -137,6 +154,7 @@ export default function ArgumentPage() {
               deviceId={deviceId}
               expandedId={expandedArgId}
               onToggle={handleAgainstToggle}
+              onSectionToggle={handleAgainstSectionToggle}
               onAddArgument={handleAddArgument}
               onDiveDeeper={handleDiveDeeper}
               backTarget={againstBackTarget}
